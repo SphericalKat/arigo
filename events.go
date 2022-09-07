@@ -1,6 +1,8 @@
 package arigo
 
-import "sync"
+import (
+	"sync"
+)
 
 //go:generate stringer -type=EventType
 
@@ -119,13 +121,12 @@ func (t *eventTarget) Dispatch(evtType EventType, event *DownloadEvent) {
 	var wg sync.WaitGroup
 
 	listeners := t.listenerMap[evtType]
-
 	wg.Add(len(listeners))
 	for _, listener := range listeners {
-		go func() {
+		go func(listener listenerData) {
 			listener.f(event)
 			wg.Done()
-		}()
+		}(listener)
 	}
 
 	wg.Wait()

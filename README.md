@@ -1,7 +1,7 @@
 # arigo
-[![Build Status](https://github.com/siku2/arigo/actions/workflows/build.yml/badge.svg)](https://github.com/siku2/arigo/actions/workflows/build.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/siku2/arigo)](https://goreportcard.com/report/github.com/siku2/arigo)
-[![Documentation](https://godoc.org/github.com/github.com/siku2/arigo?status.svg)](http://godoc.org/github.com/siku2/arigo)
+[![Build Status](https://github.com/SphericalKat/arigo/actions/workflows/build.yml/badge.svg)](https://github.com/SphericalKat/arigo/actions/workflows/build.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/SphericalKat/arigo)](https://goreportcard.com/report/github.com/SphericalKat/arigo)
+[![Documentation](https://godoc.org/github.com/github.com/SphericalKat/arigo?status.svg)](http://godoc.org/github.com/SphericalKat/arigo)
 
 A client library for the aria2 RPC interface.
 
@@ -26,7 +26,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/siku2/arigo"
+	"github.com/SphericalKat/arigo"
 )
 
 func main() {

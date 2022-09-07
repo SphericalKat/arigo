@@ -8,11 +8,11 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/SphericalKat/arigo/internal/pkg/wsrpc"
+	"github.com/SphericalKat/arigo/pkg/aria2proto"
 	"github.com/cenkalti/rpc2"
 	"github.com/cenkalti/rpc2/jsonrpc"
 	"github.com/gorilla/websocket"
-	"github.com/siku2/arigo/internal/pkg/wsrpc"
-	"github.com/siku2/arigo/pkg/aria2proto"
 )
 
 const (
@@ -41,13 +41,19 @@ type Client struct {
 
 	authToken string
 
-	evtTarget eventTarget
+	evtTarget                   eventTarget
+	onDownloadStartHandler      func(event *DownloadEvent)
+	onDownloadStopHandler       func(event *DownloadEvent)
+	onDownloadCompleteHandler   func(event *DownloadEvent)
+	onDownloadErrorHandler      func(event *DownloadEvent)
+	onDownloadPauseHandler      func(event *DownloadEvent)
+	onBTDownloadCompleteHandler func(event *DownloadEvent)
 }
 
 // NewClient creates a new client.
 // The client needs to be manually ran
 // using the Run method.
-func NewClient(rpcClient *rpc2.Client, authToken string) Client {
+func NewClient(rpcClient *rpc2.Client, authToken string) *Client {
 	client := Client{
 		rpcClient: rpcClient,
 		authToken: authToken,
@@ -61,27 +67,27 @@ func NewClient(rpcClient *rpc2.Client, authToken string) Client {
 	rpcClient.Handle(aria2proto.OnDownloadError, client.onDownloadError)
 	rpcClient.Handle(aria2proto.OnBTDownloadComplete, client.onBTDownloadComplete)
 
-	return client
+	return &client
 }
 
 // Dial creates a new connection to an aria2 rpc interface.
 // It returns a new client.
-func Dial(url string, authToken string) (client Client, err error) {
+func Dial(url string, authToken string) (*Client, error) {
 	dialer := websocket.Dialer{}
 
 	ws, _, err := dialer.Dial(url, http.Header{})
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	rwc := wsrpc.NewReadWriteCloser(ws)
 	codec := jsonrpc.NewJSONCodec(&rwc)
 	rpcClient := rpc2.NewClientWithCodec(codec)
 
-	client = NewClient(rpcClient, authToken)
+	client := NewClient(rpcClient, authToken)
 	go client.Run()
 
-	return
+	return client, err
 }
 
 // Run runs the underlying rpcClient.
@@ -99,28 +105,70 @@ func (c *Client) Close() error {
 	return c.rpcClient.Close()
 }
 
+func (c *Client) OnDownloadStart(callback func(event *DownloadEvent)) {
+	c.onDownloadStartHandler = callback
+}
+
+func (c *Client) OnDownloadPause(callback func(event *DownloadEvent)) {
+	c.onDownloadPauseHandler = callback
+}
+
+func (c *Client) OnDownloadStop(callback func(event *DownloadEvent)) {
+	c.onDownloadStopHandler = callback
+}
+
+func (c *Client) OnDownloadComplete(callback func(event *DownloadEvent)) {
+	c.onDownloadCompleteHandler = callback
+}
+
+func (c *Client) OnDownloadError(callback func(event *DownloadEvent)) {
+	c.onDownloadErrorHandler = callback
+}
+
+func (c *Client) OnBTDownloadComplete(callback func(event *DownloadEvent)) {
+	c.onBTDownloadCompleteHandler = callback
+}
+
 func (c *Client) onDownloadStart(_ *rpc2.Client, event *DownloadEvent, _ *interface{}) error {
 	c.evtTarget.Dispatch(StartEvent, event)
+	if c.onDownloadStartHandler != nil {
+		c.onDownloadStartHandler(event)
+	}
 	return nil
 }
 func (c *Client) onDownloadPause(_ *rpc2.Client, event *DownloadEvent, _ *interface{}) error {
 	c.evtTarget.Dispatch(PauseEvent, event)
+	if c.onDownloadPauseHandler != nil {
+		c.onDownloadPauseHandler(event)
+	}
 	return nil
 }
 func (c *Client) onDownloadStop(_ *rpc2.Client, event *DownloadEvent, _ *interface{}) error {
 	c.evtTarget.Dispatch(StopEvent, event)
+	if c.onDownloadStopHandler != nil {
+		c.onDownloadStopHandler(event)
+	}
 	return nil
 }
 func (c *Client) onDownloadComplete(_ *rpc2.Client, event *DownloadEvent, _ *interface{}) error {
 	c.evtTarget.Dispatch(CompleteEvent, event)
+	if c.onDownloadCompleteHandler != nil {
+		c.onDownloadCompleteHandler(event)
+	}
 	return nil
 }
 func (c *Client) onDownloadError(_ *rpc2.Client, event *DownloadEvent, _ *interface{}) error {
 	c.evtTarget.Dispatch(ErrorEvent, event)
+	if c.onDownloadErrorHandler != nil {
+		c.onDownloadErrorHandler(event)
+	}
 	return nil
 }
 func (c *Client) onBTDownloadComplete(_ *rpc2.Client, event *DownloadEvent, _ *interface{}) error {
 	c.evtTarget.Dispatch(BTCompleteEvent, event)
+	if c.onBTDownloadCompleteHandler != nil {
+		c.onBTDownloadCompleteHandler(event)
+	}
 	return nil
 }
 
@@ -589,21 +637,21 @@ func (c *Client) GetOptions(gid string) (Options, error) {
 // ChangeOptions changes options of the download denoted by gid dynamically.
 //
 // Except for following options, all options are available:
-// 	- DryRun
-//  - MetalinkBaseURI
-//  - ParameterizedURI
-//  - Pause
-//  - PieceLength
-//  - RPCSaveUploadMetadata
+//   - DryRun
+//   - MetalinkBaseURI
+//   - ParameterizedURI
+//   - Pause
+//   - PieceLength
+//   - RPCSaveUploadMetadata
 //
 // Except for the following options, changing the other options of active download makes it restart
 // (restart itself is managed by aria2, and no user intervention is required):
-// 	- BtMaxPeers
-// 	- BtRequestPeerSpeedLimit
-// 	- BtRemoveUnselectedFile
-// 	- ForceSave
-// 	- MaxDownloadLimit
-// 	- MaxUploadLimit
+//   - BtMaxPeers
+//   - BtRequestPeerSpeedLimit
+//   - BtRemoveUnselectedFile
+//   - ForceSave
+//   - MaxDownloadLimit
+//   - MaxUploadLimit
 func (c *Client) ChangeOptions(gid string, options Options) error {
 	return c.rpcClient.Call(aria2proto.ChangeOptions, c.getArgs(gid, options), nil)
 }
@@ -626,26 +674,26 @@ func (c *Client) GetGlobalOptions() (Options, error) {
 // ChangeGlobalOptions changes global options dynamically.
 //
 // The following global options are available:
-// 	- BtMaxOpenFiles
-// 	- DownloadResult
-// 	- KeepUnfinishedDownloadResult
-// 	- Log
-// 	- LogLevel
-// 	- MaxConcurrentDownloads
-// 	- MaxDownloadResult
-// 	- MaxOverallDownloadLimit
-// 	- MaxOverallUploadLimit
-// 	- OptimizeConcurrentDownloads
-// 	- SaveCookies
-// 	- SaveSession
-// 	- ServerStatOf
+//   - BtMaxOpenFiles
+//   - DownloadResult
+//   - KeepUnfinishedDownloadResult
+//   - Log
+//   - LogLevel
+//   - MaxConcurrentDownloads
+//   - MaxDownloadResult
+//   - MaxOverallDownloadLimit
+//   - MaxOverallUploadLimit
+//   - OptimizeConcurrentDownloads
+//   - SaveCookies
+//   - SaveSession
+//   - ServerStatOf
 //
 // Except for the following options, all other Options are available as well:
-// 	- Checksum
-// 	- IndexOut
-// 	- Out
-// 	- Pause
-// 	- SelectFile
+//   - Checksum
+//   - IndexOut
+//   - Out
+//   - Pause
+//   - SelectFile
 //
 // With the log option, you can dynamically start logging or change log file.
 // To stop logging, specify an empty string as the parameter value.
